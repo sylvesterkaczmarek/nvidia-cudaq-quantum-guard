@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nvidia-cudaq-quantum-guard"
+version = "0.4.0"
+description = "Policy-controlled CUDA-Q execution, diagnostics, backend comparison, and tamper-evident audit trails."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Sylvester Kaczmarek"}]
+keywords = ["cuda-q", "quantum-computing", "guardrails", "audit", "nvidia"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+cudaq = ["cudaq>=0.15,<0.16"]
+dev = ["pytest>=8,<10", "build>=1.2,<2"]
+all = ["cudaq>=0.15,<0.16", "pytest>=8,<10", "build>=1.2,<2"]
+
+[project.scripts]
+cudaq-guard = "cudaq_guard.cli:main"
+
+[project.urls]
+Repository = "https://github.com/sylvesterkaczmarek/nvidia-cudaq-quantum-guard"
+Documentation = "https://github.com/sylvesterkaczmarek/nvidia-cudaq-quantum-guard#readme"
+Issues = "https://github.com/sylvesterkaczmarek/nvidia-cudaq-quantum-guard/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

@@ -1,0 +1,23 @@
+version = 1
+name = "remote-explicit"
+allowed_operations = ["sample", "observe"]
+allowed_targets = ["braket", "ionq", "quantinuum", "iqm"]
+allow_remote = true
+allow_async = true
+max_qubits = 32
+max_shots = 10000
+allowed_qpu_ids = [0]
+require_seed = false
+
+[target_options.braket]
+machine = ["*"]
+
+[target_options.quantinuum]
+machine = ["*"]
+project = ["*"]
+
+[target_options.ionq]
+machine = ["*"]
+
+[target_options.iqm]
+url = ["*"]
