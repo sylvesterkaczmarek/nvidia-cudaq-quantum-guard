@@ -1,0 +1,13 @@
+version = 1
+name = "local-safe"
+allowed_operations = ["sample", "observe"]
+allowed_targets = ["qpp-cpu", "nvidia"]
+allow_remote = false
+allow_async = false
+max_qubits = 28
+max_shots = 100000
+allowed_qpu_ids = [0]
+require_seed = true
+
+[target_options.nvidia]
+option = ["mqpu", "fp64"]

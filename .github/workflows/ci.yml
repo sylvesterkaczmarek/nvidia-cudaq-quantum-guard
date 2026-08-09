@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Compile
+        run: python -m compileall -q src tests examples
+      - name: Test
+        run: python -m pytest
+      - name: Build package
+        if: matrix.python-version == '3.12'
+        run: python -m build
+
+  cudaq-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CUDA-Q
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[cudaq,dev]"
+      - name: Diagnose
+        run: cudaq-guard doctor --json
+      - name: CPU simulator smoke test
+        run: |
+          cudaq-guard run ghz --policy policies/local-safe.toml --target qpp-cpu --qubits 3 --shots 256 --seed 7 --audit /tmp/cudaq-guard-audit.jsonl
+          cudaq-guard audit verify /tmp/cudaq-guard-audit.jsonl
+      - name: VQE smoke test
+        run: cudaq-guard run vqe --policy policies/local-safe.toml --target qpp-cpu --steps 7 --seed 7 --audit /tmp/cudaq-guard-audit.jsonl

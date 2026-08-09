@@ -1,125 +1,317 @@
-# NVIDIA Quantum Hybrid
-[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+# NVIDIA CUDA-Q Quantum Guard
+
+![NVIDIA CUDA-Q Quantum Guard](assets/social/github-social-card-nvidia-cudaq-quantum-guard.png)
+
+[![CI](https://github.com/sylvesterkaczmarek/nvidia-cudaq-quantum-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/sylvesterkaczmarek/nvidia-cudaq-quantum-guard/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![CUDA-Q](https://img.shields.io/badge/CUDA--Q-0.15%2B-76B900?logo=nvidia&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17502919.svg)](https://doi.org/10.5281/zenodo.17502919)
 
-![NVIDIA Quantum Hybrid](assets/social/github-social-card-nvidia-quantum-hybrid.png)
+Policy-controlled execution, diagnostics, backend comparison, and tamper-evident audit trails for NVIDIA CUDA-Q. The `cudaq-guard` CLI is intended for researchers and engineers who want explicit controls around CPU, NVIDIA GPU, multi-QPU, and remote-QPU execution rather than scattering target and safety checks throughout application code.
 
-This repository shows a small classical–quantum–classical workflow with an explicit safety gate. It is written to match the current NVIDIA work on quantum to GPU hybrid computing and to show how AI safety and AI security logic can control access to quantum routines.
+This is independent open-source software. It is not an NVIDIA product and is not affiliated with or endorsed by NVIDIA.
 
-Official NVIDIA announcement  
-https://nvidianews.nvidia.com/news/nvidia-nvqlink-quantum-gpu-computing
+## At a glance
 
-## Project overview
+```mermaid
+flowchart LR
+    A[Application or CLI] --> B[Execution request]
+    B --> C[Fail-closed TOML policy]
+    C -->|deny| D[Audited denial]
+    C -->|allow| E[CUDA-Q target]
+    E --> F[CPU simulator]
+    E --> G[NVIDIA GPU]
+    E --> H[Remote QPU]
+    F --> I[Result summary]
+    G --> I
+    H --> I
+    I --> J[Tamper-evident JSONL audit]
+```
 
-- Classical stage prepares and normalises data.
-- A policy checks whether the data stays inside an approved envelope.
-- If the policy allows it, the quantum step is executed.
-- The pipeline emits structured JSON with policy, backend and latency fields. This is suitable for audit, MLOps and security monitoring.
-
-This is a simple reference that connects current hybrid quantum–GPU news with secure and trustworthy AI concepts.
+CUDA-Q already provides a unified programming model across CPUs, GPUs, and QPUs. This repository focuses on a different layer: **how an application decides what quantum work is allowed to run, where it is allowed to run, and what evidence is retained afterwards.**
 
 ## Why this is useful
 
-- Shows how to put a safety/policy check in front of a quantum call, which is what you want in secure AI or space/defence contexts.
-- Produces JSON that can be logged, audited or sent to an MLOps/SOC pipeline, so it is easy to demo to non-quantum teams.
-- Can be swapped from a simulator to CUDA-Q or a partner QPU without changing the classical logic, so it is future-ready.
+A backend switch that is convenient in a research notebook can become risky in shared infrastructure. A typo, stale configuration, or unreviewed target option can change cost, data handling, resource use, or the system that receives a job.
 
-## Features
+NVIDIA CUDA-Q Quantum Guard adds a small policy-as-code layer for CUDA-Q:
 
-- classical → policy → quantum → classical loop
-- Qiskit Aer simulator as default backend
-- registry of policies (small, strict)
-- JSON output with pipeline version, policy name, quantum backend, latency
-- ready to swap to CUDA-Q or to a real neutral-atom or photonic backend
+- allowlist `sample`, `observe`, or other execution operations
+- allowlist specific CUDA-Q targets
+- distinguish local simulator targets from remote or hardware targets
+- bound qubits, shots, QPU IDs, asynchronous execution, and target options
+- preflight built-in kernels with CUDA-Q resource estimation before execution
+- require deterministic simulator seeds where appropriate
+- audit both allowed and denied requests
+- chain audit records with SHA-256 so later modification is detectable
+- diagnose installed CUDA-Q targets, CUDA-Q GPU visibility, and NVIDIA driver visibility
+- compare the same guarded workload across CPU and GPU targets
 
-## Requirements
+## What changed from the original prototype
+
+The original repository used a one-qubit Qiskit Aer demonstration and described CUDA-Q as a future backend. Version `0.4.0` reverses that architecture:
+
+- CUDA-Q is now the native quantum runtime
+- Qiskit is no longer required
+- unknown policies and target options fail closed
+- remote execution requires explicit authorization
+- simulator randomness can be seeded
+- results are called what they are: samples or expectation values, not "quantum confidence"
+- the old post-hoc probability "noise" calculation is removed
+- policy and execution logic are packaged and tested instead of living in one demo script
+- audit records are tamper-evident rather than plain `print()` output
+
+## Install
+
+The policy, audit, and static validation tools have no mandatory third-party dependencies:
+
+```bash
+git clone https://github.com/sylvesterkaczmarek/nvidia-cudaq-quantum-guard.git
+cd nvidia-cudaq-quantum-guard
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+Install CUDA-Q support as well:
+
+```bash
+python -m pip install -e ".[cudaq,dev]"
+```
+
+CUDA-Q itself is distributed by NVIDIA as the `cudaq` Python package. GPU acceleration requires a supported NVIDIA GPU/runtime; CUDA-Q can also run CPU simulation without a GPU.
+
+## First commands
+
+Diagnose the machine and list CUDA-Q targets:
+
+```bash
+cudaq-guard doctor
+cudaq-guard targets
+```
+
+Run a guarded GHZ workload on the CPU simulator:
+
+```bash
+cudaq-guard run ghz \
+  --policy policies/local-safe.toml \
+  --target qpp-cpu \
+  --qubits 4 \
+  --shots 1000 \
+  --seed 7
+```
+
+Verify the resulting audit chain:
+
+```bash
+cudaq-guard audit verify runs/audit.jsonl
+```
+
+On a Linux host with a supported NVIDIA GPU, use the same workload and policy with the GPU target:
+
+```bash
+cudaq-guard run ghz --policy policies/local-safe.toml --target nvidia --qubits 20 --shots 1000 --seed 7
+```
+
+Compare targets without changing the workload:
+
+```bash
+cudaq-guard compare --policy policies/local-safe.toml --targets qpp-cpu,nvidia --qubits 20 --shots 1000 --seed 7
+```
+
+## Policy example
+
+`policies/local-safe.toml` permits bounded local simulation but blocks remote hardware:
+
+```toml
+version = 1
+name = "local-safe"
+allowed_operations = ["sample", "observe"]
+allowed_targets = ["qpp-cpu", "nvidia"]
+allow_remote = false
+allow_async = false
+max_qubits = 28
+max_shots = 100000
+allowed_qpu_ids = [0]
+require_seed = true
+
+[target_options.nvidia]
+option = ["mqpu", "fp64"]
+```
+
+Unknown policy fields, unsupported policy versions, unlisted targets, and unlisted target-option values are rejected rather than silently defaulted.
+
+See [docs/policy-reference.md](docs/policy-reference.md).
+
+## Library integration
+
+The guard can wrap application-owned CUDA-Q kernels rather than only the built-in CLI examples:
+
+```python
+from cudaq_guard import ExecutionRequest, Guard, GuardPolicy
+from cudaq_guard.runtime import CudaQRuntime
+
+runtime = CudaQRuntime()
+policy = GuardPolicy.from_toml("policies/local-safe.toml")
+guard = Guard(policy, audit_path="runs/audit.jsonl", runtime=runtime)
+
+request = ExecutionRequest(
+    workload="my-kernel",
+    operation="sample",
+    target="qpp-cpu",
+    qubits=5,
+    shots=1000,
+    seed=7,
+)
+
+result = guard.execute(
+    request,
+    lambda rt: rt.sample(my_cudaq_kernel, shots=1000),
+)
+```
+
+A complete example is in [`examples/library_integration.py`](examples/library_integration.py). The example also supplies a `resource_probe`, so CUDA-Q's compiled resource estimate is checked against the declared and policy qubit limits before the kernel executes.
+
+## Built-in workloads
+
+### GHZ sampling
+
+Useful for validating installation, target selection, finite-shot execution, audit behavior, and CPU/GPU comparison.
+
+### H2 VQE grid
+
+A small two-qubit variational workload exercises CUDA-Q `observe` and the classical-quantum loop without adding an optimizer dependency:
+
+```bash
+cudaq-guard run vqe --policy policies/local-safe.toml --target qpp-cpu --steps 25 --seed 7
+```
+
+It is an execution-path example, not a chemistry benchmark.
+
+## Remote and asynchronous execution
+
+CUDA-Q supports asynchronous submission to multi-QPU simulators and hardware providers. The guard exposes the asynchronous flag to policy so a deployment can explicitly decide whether that mode is allowed.
+
+For example, `policies/remote-explicit.toml` permits only named remote targets and asynchronous execution. Provider accounts, credentials, costs, and device-specific options remain the user's responsibility.
+
+Credential-like target options are redacted from local audit records. Do not place provider secrets directly in policy files.
+
+## Tamper-evident audit
+
+Every record contains the hash of the preceding record and its own canonical SHA-256 hash:
 
 ```text
-numpy
-qiskit
-qiskit-aer
+genesis -> record 1 -> record 2 -> record 3 -> ...
 ```
 
-Install
+This detects local record modification or deletion within the observed chain. It is deliberately described as **tamper-evident**, not tamper-proof: a party able to rewrite the whole file can recompute hashes. Sign or externally anchor audit heads when stronger provenance is required.
 
-```bash
-pip install -r requirements.txt
-```
+See [docs/audit-format.md](docs/audit-format.md).
 
-You can also install manually
+## Security model
 
-```bash
-pip install numpy qiskit qiskit-aer
-```
+The project provides execution controls around calls that go through the guard. It is **not** a Python sandbox and cannot stop arbitrary application code from importing CUDA-Q and bypassing the guard.
 
-## Run
+For higher-assurance deployments, enforce the guard at a process/service boundary and restrict direct provider/runtime access. See [docs/security-model.md](docs/security-model.md).
 
-```bash
-python hybrid_secure_demo.py
-```
+## CUDA-Q compatibility
 
-The script runs two examples. One passes the policy and calls the quantum circuit. The other fails the policy and does not call the quantum circuit.
+The implementation targets the current CUDA-Q Python API used for:
 
-## File layout
+- `cudaq.get_targets()` / `cudaq.get_target()`
+- `cudaq.set_target()`
+- `cudaq.sample()` and `cudaq.sample_async()`
+- `cudaq.observe()`
+- `cudaq.set_random_seed()`
+- `qpp-cpu` CPU simulation
+- `nvidia` GPU simulation, including policy-controlled target options such as `mqpu`
+
+Primary documentation:
+
+- [CUDA-Q quick start](https://nvidia.github.io/cuda-quantum/latest/using/quick_start.html)
+- [CUDA-Q execution](https://nvidia.github.io/cuda-quantum/latest/using/examples/executing_kernels.html)
+- [CUDA-Q simulators](https://nvidia.github.io/cuda-quantum/latest/using/simulators.html)
+- [CUDA-Q hardware providers](https://nvidia.github.io/cuda-quantum/latest/using/backends/hardware.html)
+
+## Repository layout
 
 ```text
-nvidia-quantum-hybrid/
+nvidia-cudaq-quantum-guard/
+├── .github/workflows/ci.yml
+├── docs/
+│   ├── audit-format.md
+│   ├── policy-reference.md
+│   ├── reproducibility.md
+│   └── security-model.md
+├── examples/
+│   └── library_integration.py
+├── policies/
+│   ├── local-safe.toml
+│   └── remote-explicit.toml
+├── src/cudaq_guard/
+│   ├── audit.py
+│   ├── cli.py
+│   ├── doctor.py
+│   ├── guard.py
+│   ├── policy.py
+│   ├── runtime.py
+│   └── workloads.py
+├── tests/
+├── CITATION.cff
+├── LICENSE
+├── Makefile
+├── pyproject.toml
 ├── requirements.txt
-├── hybrid_secure_demo.py
+├── SECURITY.md
 └── README.md
 ```
 
-- `hybrid_secure_demo.py` is the main demo.
-- `requirements.txt` keeps the environment minimal.
+## Validation
 
-## Example output
+The unit test suite covers policy denial paths, remote-target gating, target-option allowlists, deterministic policy hashing, audit-chain verification and tamper detection, credential redaction, guarded execution, denial-before-execution, environment diagnostics, and CLI policy checks.
 
-```json
-{
-  "pipeline_version": "0.3-nvidia-quantum-hybrid",
-  "policy_used": "small",
-  "policy_tag": "ok",
-  "features_meta": {
-    "mean": 1.012,
-    "std": 0.04,
-    "anomaly_score": 0.26
-  },
-  "quantum_called": true,
-  "quantum_backend": "qiskit_sim",
-  "quantum_confidence": 0.462,
-  "noise_level": 0.03,
-  "reason": "ok",
-  "explain": "policy=small, mean=1.012, theta=0.222",
-  "latency_s": 0.152
-}
-```
+GitHub Actions additionally installs NVIDIA CUDA-Q on Linux and runs real `qpp-cpu` GHZ and VQE smoke workloads. No real QPU execution occurs in CI.
+
+## Reproducibility
+
+See [docs/reproducibility.md](docs/reproducibility.md). Simulator examples use explicit seeds and record the CUDA-Q/Python versions in audit evidence.
+
+## What this repository does not claim
+
+- It is not an NVIDIA product or security boundary inside CUDA-Q.
+- It does not prove that arbitrary Python code truthfully declared qubit/resource metadata.
+- It does not formally verify quantum kernels.
+- It does not manage cloud/QPU credentials or provider billing.
+- It does not make real QPU execution deterministic.
+- A hash chain alone does not make local logs immutable or cryptographically authentic.
+- Passing the included tests is not evidence of flight, safety-critical, or high-assurance certification.
 
 ## Extending
 
-- edit `run_quantum(...)` to call a different backend
-- add more policies to the `POLICIES` dictionary
-- expose the function as an HTTP service
-- add stronger logging instead of `print`
-- add provenance or signature checks before the quantum call
+Useful next integrations include signed policies, external audit anchoring, persistent CUDA-Q asynchronous job references, organization-specific provider approval plugins, and scheduler/HPC adapters. Contributions should preserve the fail-closed behavior and avoid silently falling back to a different target.
 
-## Cite this demo
+## Requirements
+
+- Python 3.11+
+- CUDA-Q 0.15+ for quantum execution
+- Linux x86_64/ARM64 or macOS ARM64 according to CUDA-Q platform support; GPU simulation is Linux-only
+- no NVIDIA GPU is required for `qpp-cpu`
+
+## Cite this repository
 
 If you use or adapt this repository, please cite
 
-> Kaczmarek, S. (2025). *NVIDIA Quantum Hybrid*. Zenodo. https://doi.org/10.5281/zenodo.17502919
+> Kaczmarek, S. (2025). *NVIDIA CUDA-Q Quantum Guard*. Zenodo. https://doi.org/10.5281/zenodo.17502919
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17502919.svg)](https://doi.org/10.5281/zenodo.17502919)
-
-**BibTeX**
 ```bibtex
-@software{Kaczmarek_2025_NVIDIA_Quantum_Hybrid,
+@software{Kaczmarek_2025_NVIDIA_CUDAQ_Quantum_Guard,
   author    = {Sylvester Kaczmarek},
-  title     = {{NVIDIA Quantum Hybrid}},
+  title     = {{NVIDIA CUDA-Q Quantum Guard}},
   year      = {2025},
   publisher = {Zenodo},
-  url       = {https://github.com/sylvesterkaczmarek/nvidia-quantum-hybrid},
-  doi       = {10.5281/zenodo.17502919}
+  doi       = {10.5281/zenodo.17502919},
+  url       = {https://github.com/sylvesterkaczmarek/nvidia-cudaq-quantum-guard}
 }
 ```
 
@@ -127,4 +319,4 @@ If you use or adapt this repository, please cite
 
 MIT. See [LICENSE](LICENSE).
 
-© **Sylvester Kaczmarek** · https://www.sylvesterkaczmarek.com
+© **Sylvester Kaczmarek** · [https://www.sylvesterkaczmarek.com](https://www.sylvesterkaczmarek.com)
