@@ -20,7 +20,7 @@ option = ["mqpu", "fp64"]
 
 A request is denied when any bound is exceeded. Unknown policy keys, unlisted target options, unknown target-option values, and unsupported policy versions fail closed.
 
-`allow_remote = false` is deliberately conservative. The runtime uses CUDA-Q's target `is_remote()` metadata when available and falls back conservatively for older targets. A remote policy must explicitly allow both remote execution and the provider target name.
+`allow_remote = false` is deliberately conservative. Provider target definitions can report `is_remote() = false` before provider-specific configuration is supplied, so the runtime treats a target as remote/hardware when CUDA-Q reports it as remote **or** when it has no local simulator backend. A remote policy must explicitly allow both remote execution and the provider target name.
 
 A target-option value of `"*"` allows any value for that explicitly named option key. This is useful for provider-specific machine identifiers, but should be used narrowly.
 

@@ -49,11 +49,13 @@ class CudaQRuntime:
                 num_qpus = 1
             remote_attr = getattr(target, "is_remote", None)
             try:
-                is_remote = bool(remote_attr()) if callable(remote_attr) else bool(remote_attr)
+                reported_remote = bool(remote_attr()) if callable(remote_attr) else bool(remote_attr)
             except Exception:
-                is_remote = not bool(simulator)
-            if remote_attr is None:
-                is_remote = not bool(simulator)
+                reported_remote = False
+            # Provider target definitions in CUDA-Q may report is_remote=False until
+            # provider-specific configuration is supplied. Treat targets without a
+            # local simulator backend as remote/hardware conservatively.
+            is_remote = reported_remote or not bool(simulator)
             targets.append(TargetInfo(name, simulator, platform, description, num_qpus, is_remote))
         return targets
 

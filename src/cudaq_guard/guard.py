@@ -27,8 +27,6 @@ class Guard:
         self.audit = AuditTrail(audit_path) if audit_path else None
 
     def authorize(self, request: ExecutionRequest) -> PolicyDecision:
-        # First evaluate without touching CUDA-Q. A disallowed target must not be
-        # configured just to discover that it is disallowed.
         static = self.policy.evaluate(request)
         if not static.allowed:
             return static
@@ -64,9 +62,7 @@ class Guard:
                 resources = resource_probe(self.runtime)
                 resource_decision = self.policy.evaluate_resources(request, resources)
                 if not resource_decision.allowed:
-                    self._audit(
-                        run_id, request, resource_decision, started, "denied_resource", resources=resources
-                    )
+                    self._audit(run_id, request, resource_decision, started, "denied_resource", resources=resources)
                     raise PolicyDeniedError(
                         f"execution denied by policy {resource_decision.policy_name}: "
                         f"{', '.join(resource_decision.violations)}"
@@ -78,9 +74,7 @@ class Guard:
             self._audit(run_id, request, decision, started, "error", error=exc, resources=resources)
             raise
 
-        self._audit(
-            run_id, request, decision, started, "completed", result=result, resources=resources
-        )
+        self._audit(run_id, request, decision, started, "completed", result=result, resources=resources)
         return result
 
     def _audit(
@@ -121,15 +115,17 @@ class Guard:
 
 
 def summarize_result(result: Any) -> dict[str, Any]:
-    if hasattr(result, "expectation") and callable(result.expectation):
-        try:
-            return {"kind": "observe", "expectation": float(result.expectation())}
-        except Exception:
-            pass
+    # CUDA-Q SampleResult exposes both mapping-style counts and expectation().
+    # Mapping semantics are therefore checked first so samples are not mislabeled.
     if hasattr(result, "items"):
         try:
             counts = {str(k): int(v) for k, v in result.items()}
             return {"kind": "sample", "counts": counts, "shots": int(sum(counts.values()))}
+        except Exception:
+            pass
+    if hasattr(result, "expectation") and callable(result.expectation):
+        try:
+            return {"kind": "observe", "expectation": float(result.expectation())}
         except Exception:
             pass
     if isinstance(result, dict):

@@ -45,7 +45,15 @@ jobs:
         run: cudaq-guard doctor --json
       - name: CPU simulator smoke test
         run: |
-          cudaq-guard run ghz --policy policies/local-safe.toml --target qpp-cpu --qubits 3 --shots 256 --seed 7 --audit /tmp/cudaq-guard-audit.jsonl
+          cudaq-guard run ghz --policy policies/local-safe.toml --target qpp-cpu --qubits 3 --shots 256 --seed 7 --audit /tmp/cudaq-guard-audit.jsonl > /tmp/ghz.json
+          cat /tmp/ghz.json
+          python - <<'PY'
+          import json
+          data = json.load(open('/tmp/ghz.json'))
+          assert data['kind'] == 'sample'
+          assert data['shots'] == 256
+          assert set(data['counts']).issubset({'000', '111'})
+          PY
           cudaq-guard audit verify /tmp/cudaq-guard-audit.jsonl
       - name: VQE smoke test
         run: cudaq-guard run vqe --policy policies/local-safe.toml --target qpp-cpu --steps 7 --seed 7 --audit /tmp/cudaq-guard-audit.jsonl

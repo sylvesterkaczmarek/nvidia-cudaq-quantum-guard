@@ -5,7 +5,7 @@ import pytest
 
 from cudaq_guard.audit import verify_audit
 from cudaq_guard.errors import PolicyDeniedError
-from cudaq_guard.guard import Guard
+from cudaq_guard.guard import Guard, summarize_result
 from cudaq_guard.models import ExecutionRequest, TargetInfo
 from cudaq_guard.policy import GuardPolicy
 from cudaq_guard.runtime import CudaQRuntime
@@ -128,3 +128,17 @@ def test_guard_resource_probe_blocks_underdeclared_kernel(tmp_path: Path) -> Non
     record = json.loads(audit.read_text(encoding="utf-8"))
     assert record["status"] == "denied_resource"
     assert record["resources"]["num_qubits"] == 3
+
+
+class SampleLike(dict):
+    def expectation(self):
+        return 0.25
+
+
+def test_sample_result_is_not_mislabeled_as_observe() -> None:
+    summary = summarize_result(SampleLike({"000": 5, "111": 3}))
+    assert summary == {
+        "kind": "sample",
+        "counts": {"000": 5, "111": 3},
+        "shots": 8,
+    }
