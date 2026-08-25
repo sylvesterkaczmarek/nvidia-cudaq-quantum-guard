@@ -8,8 +8,9 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,9 +25,50 @@ jobs:
         run: python -m compileall -q src tests examples
       - name: Test
         run: python -m pytest
-      - name: Build package
-        if: matrix.python-version == '3.12'
+
+  package:
+    name: Build and verify package
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install packaging tools
+        run: python -m pip install --upgrade build twine
+      - name: Build distributions
         run: python -m build
+      - name: Validate distributions
+        run: python -m twine check dist/*
+      - name: Install built wheel in clean environment
+        run: |
+          python -m venv /tmp/cudaq-guard-wheel
+          /tmp/cudaq-guard-wheel/bin/python -m pip install --upgrade pip
+          /tmp/cudaq-guard-wheel/bin/python -m pip install dist/*.whl
+          /tmp/cudaq-guard-wheel/bin/python -m pip check
+      - name: Installed-wheel CLI smoke test
+        run: |
+          cd /tmp
+          /tmp/cudaq-guard-wheel/bin/python - <<'PY'
+          import json
+          import subprocess
+          from importlib.metadata import version
+          from pathlib import Path
+
+          import cudaq_guard
+
+          package_version = version("nvidia-cudaq-quantum-guard")
+          executable = "/tmp/cudaq-guard-wheel/bin/cudaq-guard"
+          assert Path(cudaq_guard.__file__).is_relative_to(Path("/tmp/cudaq-guard-wheel"))
+          actual = subprocess.check_output([executable, "--version"], text=True).strip()
+          assert actual == f"cudaq-guard {package_version}"
+          subprocess.run([executable, "--help"], check=True, stdout=subprocess.DEVNULL)
+          doctor = subprocess.run([executable, "doctor", "--json"], capture_output=True, text=True)
+          assert doctor.returncode == 2
+          report = json.loads(doctor.stdout)
+          assert report["cudaq_installed"] is False
+          PY
 
   cudaq-smoke:
     runs-on: ubuntu-latest
