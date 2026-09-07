@@ -179,15 +179,17 @@ A complete example is in [`examples/library_integration.py`](examples/library_in
 
 Useful for validating installation, target selection, finite-shot execution, audit behavior, and CPU/GPU comparison.
 
-### H2 VQE grid
+### Deuteron VQE grid
 
-A small two-qubit variational workload exercises CUDA-Q `observe` and the classical-quantum loop without adding an optimizer dependency:
+A two-qubit deuteron workload exercises CUDA-Q `observe` and the classical-quantum loop without adding an optimizer dependency:
 
 ```bash
 cudaq-guard run vqe --policy policies/local-safe.toml --target qpp-cpu --steps 25 --seed 7
 ```
 
-It is an execution-path example, not a chemistry benchmark.
+The Hamiltonian uses rounded coefficients of the finite-basis N=2 nuclear model in [Dumitrescu et al., *Cloud Quantum Computing of an Atomic Nucleus*](https://arxiv.org/abs/1801.03897). Energies are in MeV. The output identifies the model as `deuteron-n2`; `best_energy` is the lowest evaluated grid point, with no claim of optimizer convergence or an extrapolated physical binding energy. The previous H2 label was incorrect: this is not a molecular-hydrogen model.
+
+The CLI remains `run vqe`, and `h2_vqe_problem` remains available as a compatibility alias for `deuteron_vqe_problem`. New audit requests use the corrected workload name `deuteron-vqe-grid`. See [the equations and numerical checks](docs/reproducibility.md).
 
 ## Remote and asynchronous execution
 
@@ -271,7 +273,7 @@ nvidia-cudaq-quantum-guard/
 
 The unit test suite covers policy denial paths, remote-target gating, target-option allowlists, deterministic policy hashing, audit-chain verification and tamper detection, credential redaction, guarded execution, denial-before-execution, environment diagnostics, and CLI policy checks.
 
-GitHub Actions additionally installs NVIDIA CUDA-Q on Linux and runs real `qpp-cpu` GHZ and VQE smoke workloads. No real QPU execution occurs in CI.
+GitHub Actions runs the base suite on Linux, macOS, and Windows, including concurrent audit writers. It additionally installs NVIDIA CUDA-Q on Linux, runs real `qpp-cpu` GHZ and VQE workloads, and checks deuteron expectation values against an independent analytical expression and Hamiltonian matrix. No real QPU execution occurs in CI.
 
 ## Reproducibility
 

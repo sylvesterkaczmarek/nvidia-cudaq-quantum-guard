@@ -14,7 +14,7 @@ from .guard import Guard, summarize_result
 from .models import ExecutionRequest
 from .policy import GuardPolicy
 from .runtime import CudaQRuntime
-from .workloads import ghz_kernel, h2_vqe_problem, vqe_grid
+from .workloads import deuteron_vqe_problem, ghz_kernel, vqe_grid
 from . import __version__
 
 
@@ -103,13 +103,13 @@ def cmd_run_ghz(args: argparse.Namespace) -> int:
 
 def cmd_run_vqe(args: argparse.Namespace) -> int:
     guard = Guard(_policy(args.policy), audit_path=args.audit)
-    request = _request(args, "observe", "h2-vqe-grid", 2, None)
+    request = _request(args, "observe", "deuteron-vqe-grid", 2, None)
     request = ExecutionRequest(**{**request.to_dict(), "metadata": {"steps": args.steps}})
     result = guard.execute(
         request,
         lambda runtime: vqe_grid(runtime, steps=args.steps, qpu_id=args.qpu_id),
         resource_probe=lambda runtime: runtime.estimate_resources(
-            h2_vqe_problem(runtime.cudaq)[0], 0.0
+            deuteron_vqe_problem(runtime.cudaq)[0], 0.0
         ),
     )
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -211,7 +211,7 @@ def build_parser() -> argparse.ArgumentParser:
     ghz.add_argument("--audit", default="runs/audit.jsonl")
     ghz.set_defaults(func=cmd_run_ghz)
 
-    vqe = run_sub.add_parser("vqe", help="run a small H2 VQE grid search")
+    vqe = run_sub.add_parser("vqe", help="run a two-qubit deuteron VQE grid search")
     _add_execution_args(vqe, include_async=False)
     vqe.add_argument("--steps", type=int, default=25)
     vqe.add_argument("--audit", default="runs/audit.jsonl")

@@ -6,11 +6,17 @@ on:
 
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -85,6 +91,8 @@ jobs:
           python -m pip install -e ".[cudaq,dev]"
       - name: Diagnose
         run: cudaq-guard doctor --json
+      - name: Verify CPU workload mathematics
+        run: python -m pytest tests/test_workloads.py
       - name: CPU simulator smoke test
         run: |
           cudaq-guard run ghz --policy policies/local-safe.toml --target qpp-cpu --qubits 3 --shots 256 --seed 7 --audit /tmp/cudaq-guard-audit.jsonl > /tmp/ghz.json
