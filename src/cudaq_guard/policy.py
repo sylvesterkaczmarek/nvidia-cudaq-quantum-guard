@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -37,6 +38,16 @@ class GuardPolicy:
     require_seed: bool = True
     target_options: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self._validate_self()
+        # Detach caller-owned arrays and mappings from the validated policy.
+        for name in ("allowed_operations", "allowed_targets", "allowed_qpu_ids"):
+            object.__setattr__(self, name, tuple(getattr(self, name)))
+        object.__setattr__(self, "target_options", {
+            target: {key: tuple(values) for key, values in options.items()}
+            for target, options in self.target_options.items()
+        })
+
     @classmethod
     def from_toml(cls, path: str | Path) -> "GuardPolicy":
         with open(path, "rb") as handle:
@@ -54,37 +65,53 @@ class GuardPolicy:
                 raise ValueError(f"target_options.{target} must be a table")
             normalized_options[target] = {}
             for key, values in options.items():
-                if not isinstance(values, list) or not all(isinstance(v, (str, int, float, bool)) for v in values):
-                    raise ValueError(f"target_options.{target}.{key} must be an array of scalar values")
-                normalized_options[target][key] = tuple(str(v) for v in values)
+                if not isinstance(values, list) or not all(
+                    type(value) in (str, int, float, bool)
+                    and (type(value) is not float or math.isfinite(value))
+                    for value in values
+                ):
+                    raise ValueError(f"target_options.{target}.{key} must be an array of finite scalar values")
+                # CUDA-Q target options use strings. Preserve the supported TOML
+                # scalar shorthand only at this explicit conversion boundary.
+                normalized_options[target][key] = tuple(str(value) for value in values)
 
-        policy = cls(
-            version=int(raw.get("version", 1)),
-            name=str(raw.get("name", "local-safe")),
-            allowed_operations=tuple(str(v) for v in raw.get("allowed_operations", ["sample", "observe"])),
-            allowed_targets=tuple(str(v) for v in raw.get("allowed_targets", ["qpp-cpu"])),
-            allow_remote=bool(raw.get("allow_remote", False)),
-            allow_async=bool(raw.get("allow_async", False)),
-            max_qubits=int(raw.get("max_qubits", 24)),
-            max_shots=int(raw.get("max_shots", 100_000)),
-            allowed_qpu_ids=tuple(int(v) for v in raw.get("allowed_qpu_ids", [0])),
-            require_seed=bool(raw.get("require_seed", True)),
-            target_options=normalized_options,
-        )
-        policy._validate_self()
-        return policy
+        raw["target_options"] = normalized_options
+        return cls(**raw)
 
     def _validate_self(self) -> None:
+        if type(self.version) is not int:
+            raise ValueError("version must be an integer")
         if self.version != 1:
             raise ValueError(f"unsupported policy version: {self.version}")
-        if not self.name.strip():
-            raise ValueError("policy name cannot be empty")
-        if self.max_qubits < 1:
-            raise ValueError("max_qubits must be positive")
-        if self.max_shots < 1:
-            raise ValueError("max_shots must be positive")
-        if any(qpu < 0 for qpu in self.allowed_qpu_ids):
-            raise ValueError("allowed_qpu_ids cannot contain negative values")
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("policy name must be a non-empty string")
+        for name in ("allow_remote", "allow_async", "require_seed"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        for name in ("max_qubits", "max_shots"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in ("allowed_operations", "allowed_targets"):
+            values = getattr(self, name)
+            if not isinstance(values, (tuple, list)) or not all(
+                isinstance(value, str) and value.strip() for value in values
+            ):
+                raise ValueError(f"{name} must be an array of non-empty strings")
+        if not isinstance(self.allowed_qpu_ids, (tuple, list)) or not all(
+            type(value) is int and value >= 0 for value in self.allowed_qpu_ids
+        ):
+            raise ValueError("allowed_qpu_ids must be an array of non-negative integers")
+        if not isinstance(self.target_options, dict):
+            raise ValueError("target_options must be a mapping")
+        for target, options in self.target_options.items():
+            if not isinstance(target, str) or not target.strip() or not isinstance(options, dict):
+                raise ValueError("target_options must map target names to option mappings")
+            for key, values in options.items():
+                if not isinstance(key, str) or not key.strip():
+                    raise ValueError("target option names must be non-empty strings")
+                if not isinstance(values, (tuple, list)) or not all(isinstance(value, str) for value in values):
+                    raise ValueError(f"target_options.{target}.{key} must be an array of strings")
 
     @property
     def hash(self) -> str:
@@ -137,11 +164,8 @@ class GuardPolicy:
 
     def evaluate_resources(self, request: ExecutionRequest, resources: dict[str, Any]) -> PolicyDecision:
         violations: list[str] = []
-        try:
-            actual_qubits = int(resources["num_qubits"])
-        except (KeyError, TypeError, ValueError):
-            actual_qubits = 0
-        if actual_qubits < 1:
+        actual_qubits = resources.get("num_qubits") if isinstance(resources, dict) else None
+        if type(actual_qubits) is not int or actual_qubits < 1:
             violations.append("resource_estimate_invalid")
         else:
             if actual_qubits > self.max_qubits:

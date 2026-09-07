@@ -37,21 +37,29 @@ class CudaQRuntime:
             return getattr(self._module, "__version__", None) if self._module is not None else None
 
     def available_targets(self) -> list[TargetInfo]:
+        # CUDA-Q 0.15's Target.is_remote()/num_qpus() inspect the current
+        # platform, even when called on a different advertised target object.
+        # Only use that dynamic information for the active target.
+        get_target = getattr(self.cudaq, "get_target", None)
+        current_name = str(getattr(get_target(), "name", "")) if callable(get_target) else None
         targets = []
         for target in self.cudaq.get_targets():
             name = str(getattr(target, "name", ""))
             simulator = str(getattr(target, "simulator", "") or "")
             platform = str(getattr(target, "platform", "") or "")
             description = str(getattr(target, "description", "") or "")
-            try:
-                num_qpus = int(target.num_qpus())
-            except Exception:
-                num_qpus = 1
-            remote_attr = getattr(target, "is_remote", None)
-            try:
-                reported_remote = bool(remote_attr()) if callable(remote_attr) else bool(remote_attr)
-            except Exception:
-                reported_remote = False
+            num_qpus = 1
+            reported_remote = False
+            if name == current_name:
+                try:
+                    num_qpus = int(target.num_qpus())
+                except Exception:
+                    pass
+                remote_attr = getattr(target, "is_remote", None)
+                try:
+                    reported_remote = bool(remote_attr()) if callable(remote_attr) else bool(remote_attr)
+                except Exception:
+                    pass
             # Provider target definitions in CUDA-Q may report is_remote=False until
             # provider-specific configuration is supplied. Treat targets without a
             # local simulator backend as remote/hardware conservatively.
@@ -67,19 +75,28 @@ class CudaQRuntime:
 
     def configure(self, target: str, options: dict[str, str], seed: int | None) -> None:
         self.cudaq.set_target(target, **options)
+        active_target = str(getattr(self.cudaq.get_target(), "name", ""))
+        if active_target != target:
+            raise ValueError(
+                f"CUDA-Q did not activate requested target {target!r}; active target is {active_target!r}"
+            )
         if seed is not None and hasattr(self.cudaq, "set_random_seed"):
             self.cudaq.set_random_seed(int(seed))
 
     def estimate_resources(self, kernel: Any, *args: Any) -> dict[str, int]:
         resources = self.cudaq.estimate_resources(kernel, *args)
-        return {
-            "num_qubits": int(getattr(resources, "num_qubits", 0)),
-            "num_used_qubits": int(getattr(resources, "num_used_qubits", 0)),
-            "gate_count": int(resources.count()),
-            "depth": int(getattr(resources, "depth", 0)),
-            "multi_qubit_gate_count": int(getattr(resources, "multi_qubit_gate_count", 0)),
-            "multi_qubit_depth": int(getattr(resources, "multi_qubit_depth", 0)),
+        counts = {
+            "num_qubits": getattr(resources, "num_qubits", 0),
+            "num_used_qubits": getattr(resources, "num_used_qubits", 0),
+            "gate_count": resources.count(),
+            "depth": getattr(resources, "depth", 0),
+            "multi_qubit_gate_count": getattr(resources, "multi_qubit_gate_count", 0),
+            "multi_qubit_depth": getattr(resources, "multi_qubit_depth", 0),
         }
+        for name, value in counts.items():
+            if type(value) is not int or value < 0:
+                raise ValueError(f"CUDA-Q resource estimate {name} must be a nonnegative integer")
+        return counts
 
     def available_gpu_count(self) -> int | None:
         fn = getattr(self.cudaq, "num_available_gpus", None)
